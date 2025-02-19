@@ -1,2 +1,2 @@
-# scan-in
+# Scan-In
 Invoice scanner
