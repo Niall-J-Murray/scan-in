@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>scáin - Invoice Scanner</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-file-earmark-text me-2"></i>
+                <span class="brand-text">sc<span class="highlight">ái</span>n</span>
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto me-4">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/invoices">Invoices</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#">About</a>
+                    </li>
+                </ul>
+                <a href="#" class="login-btn">Log in</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="hero-section">
+        <div class="container">
+            <div class="row align-items-center">
+                <div class="col-lg-6">
+                    <h1 class="hero-title">A Better Way to Process Invoices</h1>
+                    <p class="hero-subtitle">Upload your invoice and let our AI extract the important information for you, saving you time and reducing errors.</p>
+                    <a href="#upload-section" class="get-started-btn">Get Started</a>
+                </div>
+                <div class="col-lg-6 text-center">
+                    <img src="/static/img/invoice-illustration.svg" alt="Invoice Illustration" class="hero-image d-none d-lg-inline-block">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container main-content">
+        <div class="row justify-content-center" id="upload-section">
+            <div class="col-lg-10">
+                <div class="card upload-card">
+                    <div class="card-body">
+                        <h2 class="section-title mb-4">Upload Your Invoice</h2>
+                        <div id="upload-area" class="upload-area">
+                            <div class="upload-area-inner">
+                                <div class="upload-icon">
+                                    <i class="bi bi-cloud-arrow-up"></i>
+                                </div>
+                                <p>Drag & drop your invoice image here or <span class="browse-link">browse files</span></p>
+                                <input type="file" id="file-input" accept="image/*" hidden>
+                            </div>
+                        </div>
+                        
+                        <div id="progress-container" class="progress mt-3 d-none">
+                            <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row justify-content-center mt-5">
+            <div class="col-md-12">
+                <div id="result-container" class="d-none">
+                    <div class="row">
+                        <div class="col-md-5">
+                            <div id="document-preview" class="document-preview-container d-none">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h5><i class="bi bi-file-earmark-image me-2"></i>Document Preview</h5>
+                                    </div>
+                                    <div class="card-body text-center">
+                                        <img id="document-image" class="document-image img-fluid" alt="Invoice Preview">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-7">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="bi bi-clipboard-data me-2"></i>Extracted Invoice Information</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-bordered">
+                                            <tbody>
+                                                <tr>
+                                                    <th style="width: 30%"><i class="bi bi-building me-2"></i>Vendor Name</th>
+                                                    <td id="vendor-name"></td>
+                                                </tr>
+                                                <tr>
+                                                    <th><i class="bi bi-hash me-2"></i>Invoice Number</th>
+                                                    <td id="invoice-number"></td>
+                                                </tr>
+                                                <tr>
+                                                    <th><i class="bi bi-calendar-date me-2"></i>Date</th>
+                                                    <td id="invoice-date"></td>
+                                                </tr>
+                                                <tr>
+                                                    <th><i class="bi bi-cash-stack me-2"></i>Total Amount</th>
+                                                    <td id="total-amount"></td>
+                                                </tr>
+                                                <tr>
+                                                    <th><i class="bi bi-currency-exchange me-2"></i>Currency</th>
+                                                    <td id="currency"></td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div class="mt-4 text-center">
+                                        <button id="scan-another" class="btn btn-primary"><i class="bi bi-arrow-repeat me-2"></i>Scan Another Invoice</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer mt-5">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-6">
+                    <span class="brand-text">sc<span class="highlight">ái</span>n</span>
+                    <p class="mt-2">Intelligent invoice processing powered by AI</p>
+                </div>
+                <div class="col-md-6 text-md-end">
+                    <p>&copy; 2025 Niall Murray. All rights reserved.</p>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html> 

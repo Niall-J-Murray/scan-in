@@ -1,0 +1,30 @@
+<svg width="1440" height="800" viewBox="0 0 1440 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1440" height="800" fill="#121212"/>
+  <g opacity="0.1">
+    <path d="M0 0L1440 0L1440 800L0 800L0 0Z" fill="url(#paint0_linear)"/>
+    <g opacity="0.4">
+      <circle cx="100" cy="100" r="20" fill="#27AE60"/>
+      <circle cx="300" cy="200" r="15" fill="#27AE60"/>
+      <circle cx="500" cy="150" r="10" fill="#27AE60"/>
+      <circle cx="700" cy="300" r="25" fill="#27AE60"/>
+      <circle cx="900" cy="100" r="15" fill="#27AE60"/>
+      <circle cx="1100" cy="250" r="20" fill="#27AE60"/>
+      <circle cx="1300" cy="150" r="10" fill="#27AE60"/>
+      <circle cx="200" cy="400" r="15" fill="#27AE60"/>
+      <circle cx="400" cy="350" r="10" fill="#27AE60"/>
+      <circle cx="600" cy="450" r="20" fill="#27AE60"/>
+      <circle cx="800" cy="400" r="15" fill="#27AE60"/>
+      <circle cx="1000" cy="500" r="25" fill="#27AE60"/>
+      <circle cx="1200" cy="400" r="10" fill="#27AE60"/>
+      <circle cx="1400" cy="450" r="15" fill="#27AE60"/>
+    </g>
+    <path opacity="0.2" d="M0 600C240 500 480 700 720 650C960 600 1200 500 1440 550V800H0V600Z" fill="#27AE60"/>
+    <path opacity="0.1" d="M0 650C240 600 480 750 720 700C960 650 1200 600 1440 700V800H0V650Z" fill="#FFFFFF"/>
+  </g>
+  <defs>
+    <linearGradient id="paint0_linear" x1="720" y1="0" x2="720" y2="800" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#27AE60" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#121212" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+</svg> 

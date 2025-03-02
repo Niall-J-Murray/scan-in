@@ -1,0 +1,52 @@
+<svg width="400" height="300" viewBox="0 0 400 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="400" height="300" rx="10" fill="#F8F9FA"/>
+  
+  <!-- Invoice Paper -->
+  <rect x="50" y="30" width="300" height="240" rx="8" fill="white" stroke="#E9ECEF" stroke-width="2"/>
+  
+  <!-- Invoice Header -->
+  <rect x="70" y="50" width="120" height="30" rx="4" fill="#F1F3F5"/>
+  <rect x="70" y="90" width="80" height="10" rx="2" fill="#E9ECEF"/>
+  <rect x="70" y="110" width="100" height="10" rx="2" fill="#E9ECEF"/>
+  
+  <!-- Invoice Number -->
+  <rect x="250" y="50" width="80" height="20" rx="4" fill="#4285F4" opacity="0.2"/>
+  <rect x="250" y="80" width="60" height="10" rx="2" fill="#E9ECEF"/>
+  <rect x="250" y="100" width="80" height="10" rx="2" fill="#E9ECEF"/>
+  
+  <!-- Invoice Items -->
+  <rect x="70" y="140" width="260" height="1" fill="#E9ECEF"/>
+  
+  <rect x="70" y="150" width="160" height="10" rx="2" fill="#E9ECEF"/>
+  <rect x="250" y="150" width="40" height="10" rx="2" fill="#E9ECEF"/>
+  <rect x="300" y="150" width="30" height="10" rx="2" fill="#E9ECEF"/>
+  
+  <rect x="70" y="170" width="140" height="10" rx="2" fill="#E9ECEF"/>
+  <rect x="250" y="170" width="40" height="10" rx="2" fill="#E9ECEF"/>
+  <rect x="300" y="170" width="30" height="10" rx="2" fill="#E9ECEF"/>
+  
+  <rect x="70" y="190" width="180" height="10" rx="2" fill="#E9ECEF"/>
+  <rect x="250" y="190" width="40" height="10" rx="2" fill="#E9ECEF"/>
+  <rect x="300" y="190" width="30" height="10" rx="2" fill="#E9ECEF"/>
+  
+  <!-- Total -->
+  <rect x="70" y="220" width="260" height="1" fill="#E9ECEF"/>
+  <rect x="230" y="230" width="60" height="10" rx="2" fill="#E9ECEF"/>
+  <rect x="300" y="230" width="30" height="10" rx="2" fill="#4285F4" opacity="0.3"/>
+  
+  <!-- Scan Effect -->
+  <rect x="30" y="140" width="340" height="4" rx="2" fill="#4285F4" opacity="0.2">
+    <animate attributeName="y" from="30" to="270" dur="3s" repeatCount="indefinite"/>
+  </rect>
+  
+  <!-- AI Elements -->
+  <circle cx="320" cy="40" r="15" fill="#4285F4" opacity="0.1"/>
+  <circle cx="320" cy="40" r="7" fill="#4285F4" opacity="0.3"/>
+  
+  <circle cx="40" cy="200" r="15" fill="#4285F4" opacity="0.1"/>
+  <circle cx="40" cy="200" r="7" fill="#4285F4" opacity="0.3"/>
+  
+  <circle cx="350" cy="250" r="15" fill="#4285F4" opacity="0.1"/>
+  <circle cx="350" cy="250" r="7" fill="#4285F4" opacity="0.3"/>
+</svg> 
