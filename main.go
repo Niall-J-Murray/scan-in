@@ -1253,184 +1253,242 @@ func createDisplayImage(sourcePath, destPath string) error {
 	width := src.Bounds().Dx()
 	height := src.Bounds().Dy()
 
-	// Convert to grayscale for processing
+	// Create a grayscale version for processing
 	gray := imaging.Grayscale(src)
 
-	// Apply moderate Gaussian blur to reduce noise
-	blurred := imaging.Blur(gray, 1.5)
+	// Multi-stage approach for more accurate edge detection
 
-	// Apply Canny-like edge detection by using contrast and brightness adjustments
-	edges := imaging.AdjustContrast(blurred, 50)
-	edges = imaging.AdjustBrightness(edges, -10)
+	// Stage 1: Basic edge enhancement
+	edgeImg := imaging.Sharpen(gray, 0.7)
+	edgeImg = imaging.AdjustContrast(edgeImg, 50)
 
-	// Create a binary threshold image
-	binary := imaging.New(width, height, color.Gray{Y: 255})
+	// Stage 2: Generate a binary image with adaptive threshold
+	binary := imaging.New(width, height, color.White)
+	for y := 0; y < height; y++ {
+		// Calculate local threshold based on average intensity in the row
+		var rowSum uint32
+		for x := 0; x < width; x++ {
+			r, _, _, _ := edgeImg.At(x, y).RGBA()
+			rowSum += r >> 8
+		}
+		avgIntensity := rowSum / uint32(width)
+
+		// Apply adaptive threshold
+		threshold := avgIntensity - 30 // Adjust based on testing
+		if threshold < 100 {
+			threshold = 100
+		}
+
+		for x := 0; x < width; x++ {
+			r, _, _, _ := edgeImg.At(x, y).RGBA()
+			if (r >> 8) < threshold {
+				binary.Set(x, y, color.Black)
+			}
+		}
+	}
+
+	// Stage 3: Compute horizontal and vertical gradients
+	horizontalGradient := imaging.New(width, height, color.White)
+	verticalGradient := imaging.New(width, height, color.White)
+
+	// Compute vertical gradient (for horizontal edges)
+	for y := 1; y < height-1; y++ {
+		for x := 0; x < width; x++ {
+			above, _, _, _ := edgeImg.At(x, y-1).RGBA()
+			below, _, _, _ := edgeImg.At(x, y+1).RGBA()
+
+			// Compute gradient (Sobel-like)
+			gradient := int32(above>>8) - int32(below>>8)
+			if gradient < 0 {
+				gradient = -gradient
+			}
+
+			if gradient > 30 { // Threshold for edges
+				verticalGradient.Set(x, y, color.Black)
+			}
+		}
+	}
+
+	// Compute horizontal gradient (for vertical edges)
+	for y := 0; y < height; y++ {
+		for x := 1; x < width-1; x++ {
+			left, _, _, _ := edgeImg.At(x-1, y).RGBA()
+			right, _, _, _ := edgeImg.At(x+1, y).RGBA()
+
+			// Compute gradient (Sobel-like)
+			gradient := int32(left>>8) - int32(right>>8)
+			if gradient < 0 {
+				gradient = -gradient
+			}
+
+			if gradient > 30 { // Threshold for edges
+				horizontalGradient.Set(x, y, color.Black)
+			}
+		}
+	}
+
+	// Stage 4: Analyze horizontal and vertical projections
+	horizontalProjection := make([]int, height)
+	verticalProjection := make([]int, width)
+
+	// Calculate horizontal projection (for top/bottom edges)
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
-			r, _, _, _ := edges.At(x, y).RGBA()
-			if r>>8 < 128 { // Threshold value
-				binary.Set(x, y, color.Gray{Y: 0})
+			r, _, _, _ := verticalGradient.At(x, y).RGBA()
+			if r == 0 { // Black pixel
+				horizontalProjection[y]++
 			}
 		}
 	}
 
-	// Dilate the edges to connect nearby lines
-	dilated := imaging.New(width, height, color.Gray{Y: 255})
-	for y := 1; y < height-1; y++ {
-		for x := 1; x < width-1; x++ {
-			// Check 3x3 neighborhood
-			hasBlackPixel := false
-			for dy := -1; dy <= 1; dy++ {
-				for dx := -1; dx <= 1; dx++ {
-					r, _, _, _ := binary.At(x+dx, y+dy).RGBA()
-					if r>>8 < 128 {
-						hasBlackPixel = true
-						break
-					}
-				}
-				if hasBlackPixel {
-					break
-				}
-			}
-			if hasBlackPixel {
-				dilated.Set(x, y, color.Gray{Y: 0})
-			}
-		}
-	}
-
-	// Find the bounding box of the document
-	minX, minY := width, height
-	maxX, maxY := 0, 0
-
-	// Scan for the document edges
-	// We'll look for connected regions of dark pixels
-
-	// First pass: find potential document edges
-	edgePoints := make(map[string]bool)
-
-	// Scan horizontally for edges
-	for y := 0; y < height; y += height/50 + 1 { // Sample at intervals
-		inDocument := false
-		edgeCount := 0
-		for x := 0; x < width; x++ {
-			r, _, _, _ := dilated.At(x, y).RGBA()
-			isEdge := r>>8 < 128
-
-			if isEdge && !inDocument {
-				inDocument = true
-				edgePoints[fmt.Sprintf("%d,%d", x, y)] = true
-				edgeCount++
-			} else if isEdge && inDocument {
-				// Still on an edge
-				edgePoints[fmt.Sprintf("%d,%d", x, y)] = true
-			} else if !isEdge && inDocument {
-				inDocument = false
-				edgePoints[fmt.Sprintf("%d,%d", x-1, y)] = true
-				edgeCount++
-			}
-		}
-	}
-
-	// Scan vertically for edges
-	for x := 0; x < width; x += width/50 + 1 { // Sample at intervals
-		inDocument := false
-		edgeCount := 0
+	// Calculate vertical projection (for left/right edges)
+	for x := 0; x < width; x++ {
 		for y := 0; y < height; y++ {
-			r, _, _, _ := dilated.At(x, y).RGBA()
-			isEdge := r>>8 < 128
-
-			if isEdge && !inDocument {
-				inDocument = true
-				edgePoints[fmt.Sprintf("%d,%d", x, y)] = true
-				edgeCount++
-			} else if isEdge && inDocument {
-				// Still on an edge
-				edgePoints[fmt.Sprintf("%d,%d", x, y)] = true
-			} else if !isEdge && inDocument {
-				inDocument = false
-				edgePoints[fmt.Sprintf("%d,%d", x, y-1)] = true
-				edgeCount++
+			r, _, _, _ := horizontalGradient.At(x, y).RGBA()
+			if r == 0 { // Black pixel
+				verticalProjection[x]++
 			}
 		}
 	}
 
-	// Calculate bounding box from edge points
-	if len(edgePoints) > 0 {
-		for pointStr := range edgePoints {
-			var x, y int
-			fmt.Sscanf(pointStr, "%d,%d", &x, &y)
+	// Stage 5: Document boundary detection with sophisticated analysis
+	// Default margins
+	topMargin := int(float64(height) * 0.10)    // Reduced from 15% to 10% from top
+	bottomMargin := int(float64(height) * 0.10) // Reduced from 15% to 10% from bottom
+	leftMargin := int(float64(width) * 0.05)    // 5% from left
+	rightMargin := int(float64(width) * 0.05)   // 5% from right
 
-			if x < minX {
-				minX = x
-			}
-			if x > maxX {
-				maxX = x
-			}
-			if y < minY {
-				minY = y
-			}
-			if y > maxY {
-				maxY = y
-			}
+	// Look for strong horizontal edges (top and bottom)
+	// The key is to find significant jumps in the horizontal projection
+
+	// For top edge detection
+	// First smooth the projection to reduce noise
+	smoothedHorizontal := make([]int, height)
+	windowSize := 5
+	for y := windowSize; y < height-windowSize; y++ {
+		sum := 0
+		for i := -windowSize; i <= windowSize; i++ {
+			sum += horizontalProjection[y+i]
 		}
-	} else {
-		// Fallback if no edges detected
-		minX = width / 20
-		minY = height / 20
-		maxX = width - width/20
-		maxY = height - height/20
+		smoothedHorizontal[y] = sum / (windowSize*2 + 1)
 	}
 
-	// Add margins to ensure we don't crop too tightly
-	margin := 10
-	minX = max(0, minX-margin)
-	minY = max(0, minY-margin)
-	maxX = min(width, maxX+margin)
-	maxY = min(height, maxY+margin)
+	// Find top edge using gradient of smoothed projection
+	for y := windowSize; y < height/3; y++ {
+		// Calculate gradient over a window
+		gradient := smoothedHorizontal[y+windowSize] - smoothedHorizontal[y-windowSize]
 
-	// Sanity check - if the detected area is too small, use default margins
-	if maxX-minX < width/3 || maxY-minY < height/3 {
-		minX = width / 20
-		minY = height / 20
-		maxX = width - width/20
-		maxY = height - height/20
-	}
-
-	// Crop the original image to the detected document area
-	cropped := imaging.Crop(src, image.Rect(minX, minY, maxX, maxY))
-
-	// Create a white background image
-	result := imaging.New(maxX-minX, maxY-minY, color.White)
-
-	// Copy the document onto the white background with slight transparency for background pixels
-	for y := 0; y < result.Bounds().Dy(); y++ {
-		for x := 0; x < result.Bounds().Dx(); x++ {
-			// Get pixel from cropped image
-			pixel := cropped.At(x, y)
-
-			// Convert to grayscale value to check if it's background
-			r, g, b, _ := pixel.RGBA()
-			brightness := (r + g + b) / 3
-
-			// If it's very bright (likely background), use white instead
-			if brightness > 60000 { // Threshold for background detection
-				result.Set(x, y, color.White)
-			} else {
-				result.Set(x, y, pixel)
+		// Look for a significant positive gradient (dark to light transition)
+		if gradient > width/20 {
+			// Verify it's a stable edge with high pixel count
+			if smoothedHorizontal[y] > width/10 {
+				topMargin = max(0, y-25) // Increased margin to preserve more content
+				break
 			}
 		}
 	}
 
-	// Apply mild enhancements to improve readability
-	result = imaging.AdjustContrast(result, 10)
-	result = imaging.Sharpen(result, 0.5)
+	// Find bottom edge using similar approach
+	for y := height - windowSize - 1; y >= height*2/3; y-- {
+		// Calculate gradient over a window
+		gradient := smoothedHorizontal[y-windowSize] - smoothedHorizontal[y+windowSize]
 
-	// Resize if the image is too large
-	if width > 1000 || height > 1000 {
-		result = imaging.Fit(result, 1000, 1000, imaging.Lanczos)
+		// Look for a significant positive gradient (light to dark transition, when scanning bottom-up)
+		if gradient > width/20 {
+			// Verify it's a stable edge with high pixel count
+			if smoothedHorizontal[y] > width/10 {
+				bottomMargin = max(0, height-y-25) // Increased margin to preserve more content
+				break
+			}
+		}
 	}
 
-	// Save the processed image
+	// Side edge detection
+	// First smooth the vertical projection
+	smoothedVertical := make([]int, width)
+	for x := windowSize; x < width-windowSize; x++ {
+		sum := 0
+		for i := -windowSize; i <= windowSize; i++ {
+			sum += verticalProjection[x+i]
+		}
+		smoothedVertical[x] = sum / (windowSize*2 + 1)
+	}
+
+	// Find left edge
+	for x := windowSize; x < width/3; x++ {
+		// Calculate gradient over a window
+		gradient := smoothedVertical[x+windowSize] - smoothedVertical[x-windowSize]
+
+		// Look for a significant positive gradient
+		if gradient > height/20 {
+			if smoothedVertical[x] > height/10 {
+				leftMargin = max(0, x-20) // Conservative margin for sides
+				break
+			}
+		}
+	}
+
+	// Find right edge
+	for x := width - windowSize - 1; x >= width*2/3; x-- {
+		// Calculate gradient over a window
+		gradient := smoothedVertical[x-windowSize] - smoothedVertical[x+windowSize]
+
+		// Look for a significant positive gradient
+		if gradient > height/20 {
+			if smoothedVertical[x] > height/10 {
+				rightMargin = max(0, width-x-20) // Conservative margin for sides
+				break
+			}
+		}
+	}
+
+	// Combine results and apply sanity checks
+	validCrop := true
+
+	// Calculate the effective crop dimensions
+	effectiveWidth := width - leftMargin - rightMargin
+	effectiveHeight := height - topMargin - bottomMargin
+
+	// Check if the crop dimensions are reasonable
+	if effectiveWidth < width/3 || effectiveHeight < height/3 {
+		validCrop = false
+	}
+
+	// Check if the crop dimensions are too large (indicating failed detection)
+	if effectiveWidth > int(float64(width)*0.98) || effectiveHeight > int(float64(height)*0.98) {
+		validCrop = false
+	}
+
+	// Log the detected margins
+	log.Printf("Detected edges: top=%d, bottom=%d, left=%d, right=%d (valid=%v)",
+		topMargin, bottomMargin, leftMargin, rightMargin, validCrop)
+
+	// If edge detection failed, use default margins
+	if !validCrop {
+		log.Printf("Using default margins")
+		topMargin = int(float64(height) * 0.10)    // Reduced from 15% to 10% from top
+		bottomMargin = int(float64(height) * 0.10) // Reduced from 15% to 10% from bottom
+		leftMargin = int(float64(width) * 0.05)    // 5% from left (unchanged)
+		rightMargin = int(float64(width) * 0.05)   // 5% from right (unchanged)
+	}
+
+	// Calculate the crop rectangle
+	cropRect := image.Rect(
+		leftMargin,
+		topMargin,
+		width-rightMargin,
+		height-bottomMargin,
+	)
+
+	// Crop the image
+	cropped := imaging.Crop(src, cropRect)
+
+	// Final result - minimal enhancements to maintain readability
+	result := imaging.Clone(cropped)
+	result = imaging.AdjustContrast(result, 5) // Very mild contrast
+	result = imaging.Sharpen(result, 0.2)      // Minimal sharpening
+
+	// Save the result
 	err = imaging.Save(result, destPath)
 	if err != nil {
 		return err
