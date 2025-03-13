@@ -8,6 +8,7 @@ import (
 	_ "image/png"
 	"io"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -37,6 +38,14 @@ type Invoice struct {
 }
 
 var db *gorm.DB
+
+// DocumentSection represents a logical section of the document
+type DocumentSection struct {
+	ID        int
+	Bounds    image.Rectangle
+	TextLines []TextLine
+	Type      string // e.g., "header", "details", "totals"
+}
 
 func main() {
 	// Load environment variables
@@ -120,6 +129,25 @@ func scanInvoice(c *gin.Context) {
 		// Continue processing even if display image creation fails
 	}
 
+	// Open the processed image for section detection
+	processedImg, err := imaging.Open(processedPath)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to open processed image for section detection"})
+		return
+	}
+
+	// Detect document sections
+	sections, err := detectDocumentSections(processedImg)
+	if err != nil {
+		log.Printf("Warning: Failed to detect document sections: %v", err)
+		// Continue with regular processing
+	} else {
+		log.Printf("Detected %d document sections", len(sections))
+		for _, section := range sections {
+			log.Printf("Section %d: Bounds=%v", section.ID, section.Bounds)
+		}
+	}
+
 	// Create the client
 	client := computervision.New(os.Getenv("AZURE_ENDPOINT"))
 	auth := autorest.NewCognitiveServicesAuthorizer(os.Getenv("AZURE_API_KEY"))
@@ -152,6 +180,13 @@ func scanInvoice(c *gin.Context) {
 
 	// Extract invoice details
 	invoice := extractInvoiceDetails(textLines)
+
+	// Debug output
+	log.Printf("Extracted Invoice Details:")
+	log.Printf("  Vendor Name: %s", invoice.VendorName)
+	log.Printf("  Invoice Number: %s", invoice.InvoiceNumber)
+	log.Printf("  Date: %s", invoice.Date)
+	log.Printf("  Amount: %.2f %s", invoice.TotalAmount, invoice.Currency)
 
 	// Save the invoice to the database
 	if err := db.Create(&invoice).Error; err != nil {
@@ -526,7 +561,6 @@ func extractVendorNameFromPosition(textLines []TextLine) string {
 	return "UNKNOWN"
 }
 
-// Helper function to clean text for comparison
 func cleanTextForComparison(text string) string {
 	// Convert to lowercase
 	text = strings.ToLower(text)
@@ -581,92 +615,41 @@ func convertDomainToReadableName(domain string) string {
 }
 
 func extractInvoiceNumberFromPosition(textLines []TextLine) string {
-	// Common invoice number patterns
-	patterns := []string{
-		`(?i)inv[oice]*[-#\s.:]*([A-Za-z0-9-]+)`,
-		`(?i)invoice\s*number[-#\s.:]*([A-Za-z0-9-]+)`,
-		`(?i)invoice\s*#\s*([A-Za-z0-9-]+)`,
-		`(?i)invoice\s*no\.?\s*([A-Za-z0-9-]+)`,
-		`(?i)inv\s*no\.?\s*([A-Za-z0-9-]+)`,
-		`(?i)order\s*number[-#\s.:]*([A-Za-z0-9-]+)`,
-		`(?i)order\s*#\s*([A-Za-z0-9-]+)`,
-		`(?i)order\s*no\.?\s*([A-Za-z0-9-]+)`,
-		`(?i)reference\s*number[-#\s.:]*([A-Za-z0-9-]+)`,
-		`(?i)reference\s*#\s*([A-Za-z0-9-]+)`,
-		`(?i)reference\s*no\.?\s*([A-Za-z0-9-]+)`,
-		`(?i)ref\s*no\.?\s*([A-Za-z0-9-]+)`,
-		`(?i)#\s*([A-Za-z0-9-]+)`,
+	// Debug: Print all text lines found
+	log.Printf("All text lines found:")
+	for _, line := range textLines {
+		log.Printf("Line: '%s' (X: %d, Y: %d)", line.Text, line.X, line.Y)
 	}
 
-	// Find the maximum X and Y values to determine document dimensions
-	maxX, maxY := 0, 0
+	// First look for "Number:" and then check nearby lines
+	var numberLine TextLine
+	var foundNumberLabel bool
+
 	for _, line := range textLines {
-		if line.X > maxX {
-			maxX = line.X
-		}
-		if line.Y > maxY {
-			maxY = line.Y
+		if strings.Contains(strings.ToLower(line.Text), "number:") {
+			numberLine = line
+			foundNumberLabel = true
+			log.Printf("Found 'Number:' at X: %d, Y: %d", line.X, line.Y)
+			break
 		}
 	}
 
-	// Consider the top 30% of the document
-	topThreshold := maxY * 3 / 10
+	if foundNumberLabel {
+		// Look for numbers in lines that are within 50 pixels vertically and to the right of "Number:"
+		const verticalTolerance = 50
+		const horizontalTolerance = 300 // Allow numbers to be up to 300 pixels to the right
 
-	// Consider the right half of the document
-	rightHalfThreshold := maxX / 2
-
-	// First check top right area for invoice number
-	for _, line := range textLines {
-		if line.Y < topThreshold && line.X > rightHalfThreshold {
-			lowerText := strings.ToLower(line.Text)
-			// Check if line contains invoice-related keywords
-			if strings.Contains(lowerText, "invoice") ||
-				strings.Contains(lowerText, "inv") ||
-				strings.Contains(lowerText, "number") ||
-				strings.Contains(lowerText, "#") {
-
-				for _, pattern := range patterns {
-					re := regexp.MustCompile(pattern)
-					if matches := re.FindStringSubmatch(line.Text); len(matches) > 1 {
-						// Clean up the result
-						result := strings.TrimSpace(matches[1])
-						// If it's just a single character, it's probably not a valid invoice number
-						if len(result) > 1 {
-							return result
-						}
-					}
-				}
-
-				// If no match with patterns but line contains invoice keyword,
-				// try to extract alphanumeric sequence that might be the invoice number
-				re := regexp.MustCompile(`[A-Za-z0-9][-A-Za-z0-9]{2,}`)
-				matches := re.FindAllString(line.Text, -1)
-				for _, match := range matches {
-					// Skip if it's just a common word
-					lowerMatch := strings.ToLower(match)
-					if lowerMatch != "invoice" && lowerMatch != "number" && lowerMatch != "inv" && len(match) > 2 {
-						return match
-					}
-				}
-			}
-		}
-	}
-
-	// If not found in top right, look for lines containing "invoice" or "number" keywords anywhere
-	for _, line := range textLines {
-		lowerText := strings.ToLower(line.Text)
-		if strings.Contains(lowerText, "invoice") ||
-			strings.Contains(lowerText, "inv") ||
-			strings.Contains(lowerText, "number") ||
-			strings.Contains(lowerText, "order") ||
-			strings.Contains(lowerText, "reference") {
-			for _, pattern := range patterns {
-				re := regexp.MustCompile(pattern)
-				if matches := re.FindStringSubmatch(line.Text); len(matches) > 1 {
-					// Clean up the result
-					result := strings.TrimSpace(matches[1])
-					// If it's just a single character, it's probably not a valid invoice number
-					if len(result) > 1 {
+		for _, line := range textLines {
+			// Check if the line is within vertical tolerance
+			verticalDiff := line.Y - numberLine.Y
+			if verticalDiff >= -verticalTolerance && verticalDiff <= verticalTolerance {
+				// Check if the line is to the right of "Number:"
+				if line.X >= numberLine.X && line.X <= numberLine.X+horizontalTolerance {
+					// Look for a sequence of digits
+					re := regexp.MustCompile(`(\d{5,})`) // Look for 5 or more digits
+					if matches := re.FindStringSubmatch(line.Text); len(matches) > 0 {
+						result := matches[1]
+						log.Printf("Found potential invoice number: '%s' at X: %d, Y: %d", result, line.X, line.Y)
 						return result
 					}
 				}
@@ -674,41 +657,23 @@ func extractInvoiceNumberFromPosition(textLines []TextLine) string {
 		}
 	}
 
-	// Consider lines in the top half
-	topHalfThreshold := maxY / 2
-
-	// Check top half for invoice number
+	// If not found, try looking for lines containing either "invoice" or "delivery docket"
 	for _, line := range textLines {
-		if line.Y < topHalfThreshold {
-			for _, pattern := range patterns {
-				re := regexp.MustCompile(pattern)
-				if matches := re.FindStringSubmatch(line.Text); len(matches) > 1 {
-					// Clean up the result
-					result := strings.TrimSpace(matches[1])
-					// If it's just a single character, it's probably not a valid invoice number
-					if len(result) > 1 {
-						return result
-					}
-				}
+		text := strings.ToLower(line.Text)
+		if strings.Contains(text, "invoice") || strings.Contains(text, "delivery docket") {
+			log.Printf("Found line with 'invoice' or 'delivery docket': '%s'", line.Text)
+
+			// Look for numbers in this line
+			re := regexp.MustCompile(`(\d{5,})`)
+			if matches := re.FindStringSubmatch(line.Text); len(matches) > 0 {
+				result := matches[1]
+				log.Printf("Found invoice number: '%s'", result)
+				return result
 			}
 		}
 	}
 
-	// If not found in top half, check the entire document
-	for _, line := range textLines {
-		for _, pattern := range patterns {
-			re := regexp.MustCompile(pattern)
-			if matches := re.FindStringSubmatch(line.Text); len(matches) > 1 {
-				// Clean up the result
-				result := strings.TrimSpace(matches[1])
-				// If it's just a single character, it's probably not a valid invoice number
-				if len(result) > 1 {
-					return result
-				}
-			}
-		}
-	}
-
+	log.Printf("No valid invoice number found in document")
 	return "UNKNOWN"
 }
 
@@ -1269,7 +1234,8 @@ func createDisplayImage(sourcePath, destPath string) error {
 		var rowSum uint32
 		for x := 0; x < width; x++ {
 			r, _, _, _ := edgeImg.At(x, y).RGBA()
-			rowSum += r >> 8
+			pixel := uint8(r >> 8)
+			rowSum += uint32(pixel)
 		}
 		avgIntensity := rowSum / uint32(width)
 
@@ -1281,7 +1247,8 @@ func createDisplayImage(sourcePath, destPath string) error {
 
 		for x := 0; x < width; x++ {
 			r, _, _, _ := edgeImg.At(x, y).RGBA()
-			if (r >> 8) < threshold {
+			pixel := uint8(r >> 8)
+			if uint32(pixel) < threshold {
 				binary.Set(x, y, color.Black)
 			}
 		}
@@ -1294,11 +1261,11 @@ func createDisplayImage(sourcePath, destPath string) error {
 	// Compute vertical gradient (for horizontal edges)
 	for y := 1; y < height-1; y++ {
 		for x := 0; x < width; x++ {
-			above, _, _, _ := edgeImg.At(x, y-1).RGBA()
-			below, _, _, _ := edgeImg.At(x, y+1).RGBA()
+			left, _, _, _ := edgeImg.At(x-1, y).RGBA()
+			right, _, _, _ := edgeImg.At(x+1, y).RGBA()
 
 			// Compute gradient (Sobel-like)
-			gradient := int32(above>>8) - int32(below>>8)
+			gradient := int32(left>>8) - int32(right>>8)
 			if gradient < 0 {
 				gradient = -gradient
 			}
@@ -1622,4 +1589,202 @@ func cleanupImages() {
 	if removedCount > 0 {
 		log.Printf("Cleaned up %d old processed images", removedCount)
 	}
+}
+
+// detectDocumentSections analyzes the image and returns detected sections
+func detectDocumentSections(img image.Image) ([]DocumentSection, error) {
+	bounds := img.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+
+	// Convert to grayscale for analysis
+	gray := imaging.Grayscale(img)
+
+	// Create maps to store horizontal and vertical lines
+	horizontalLines := make(map[int]bool)
+	verticalLines := make(map[int]bool)
+
+	// Detect horizontal lines by looking for consistent light/dark transitions
+	for y := 0; y < height; y++ {
+		linePixels := 0
+		for x := 0; x < width; x++ {
+			r, _, _, _ := gray.At(x, y).RGBA()
+			pixel := uint8(r >> 8)
+			if x > 0 {
+				prevR, _, _, _ := gray.At(x-1, y).RGBA()
+				prevPixel := uint8(prevR >> 8)
+				if math.Abs(float64(pixel)-float64(prevPixel)) > 30 {
+					linePixels++
+				}
+			}
+		}
+		// If we found enough transitions, consider it a line
+		if linePixels > width/3 {
+			horizontalLines[y] = true
+		}
+	}
+
+	// Detect vertical lines
+	for x := 0; x < width; x++ {
+		linePixels := 0
+		for y := 0; y < height; y++ {
+			r, _, _, _ := gray.At(x, y).RGBA()
+			pixel := uint8(r >> 8)
+			if y > 0 {
+				prevR, _, _, _ := gray.At(x, y-1).RGBA()
+				prevPixel := uint8(prevR >> 8)
+				if math.Abs(float64(pixel)-float64(prevPixel)) > 30 {
+					linePixels++
+				}
+			}
+		}
+		if linePixels > height/3 {
+			verticalLines[x] = true
+		}
+	}
+
+	// Group nearby lines to avoid over-segmentation
+	const lineProximityThreshold = 10
+	consolidatedHLines := consolidateLines(horizontalLines, lineProximityThreshold)
+	consolidatedVLines := consolidateLines(verticalLines, lineProximityThreshold)
+
+	// Create sections based on line intersections
+	var sections []DocumentSection
+	sectionID := 1
+
+	// Sort line positions
+	hLinePositions := make([]int, 0, len(consolidatedHLines))
+	for pos := range consolidatedHLines {
+		hLinePositions = append(hLinePositions, pos)
+	}
+	sort.Ints(hLinePositions)
+
+	vLinePositions := make([]int, 0, len(consolidatedVLines))
+	for pos := range consolidatedVLines {
+		vLinePositions = append(vLinePositions, pos)
+	}
+	sort.Ints(vLinePositions)
+
+	// Add document boundaries
+	if len(hLinePositions) == 0 || hLinePositions[0] > 0 {
+		hLinePositions = append([]int{0}, hLinePositions...)
+	}
+	if len(hLinePositions) == 0 || hLinePositions[len(hLinePositions)-1] < height {
+		hLinePositions = append(hLinePositions, height)
+	}
+
+	if len(vLinePositions) == 0 || vLinePositions[0] > 0 {
+		vLinePositions = append([]int{0}, vLinePositions...)
+	}
+	if len(vLinePositions) == 0 || vLinePositions[len(vLinePositions)-1] < width {
+		vLinePositions = append(vLinePositions, width)
+	}
+
+	// Create sections between lines
+	for i := 0; i < len(hLinePositions)-1; i++ {
+		for j := 0; j < len(vLinePositions)-1; j++ {
+			section := DocumentSection{
+				ID: sectionID,
+				Bounds: image.Rect(
+					vLinePositions[j],
+					hLinePositions[i],
+					vLinePositions[j+1],
+					hLinePositions[i+1],
+				),
+			}
+			sections = append(sections, section)
+			sectionID++
+		}
+	}
+
+	// Analyze color variations within each section
+	for i := range sections {
+		section := &sections[i]
+		if detectSignificantColorChange(img, section.Bounds) {
+			// Split section if significant color change detected
+			midY := (section.Bounds.Min.Y + section.Bounds.Max.Y) / 2
+			// Create two new sections
+			upperSection := DocumentSection{
+				ID:     sectionID,
+				Bounds: image.Rect(section.Bounds.Min.X, section.Bounds.Min.Y, section.Bounds.Max.X, midY),
+			}
+			sectionID++
+			lowerSection := DocumentSection{
+				ID:     sectionID,
+				Bounds: image.Rect(section.Bounds.Min.X, midY, section.Bounds.Max.X, section.Bounds.Max.Y),
+			}
+			sectionID++
+
+			// Replace original section with new sections
+			sections = append(sections[:i], append([]DocumentSection{upperSection, lowerSection}, sections[i+1:]...)...)
+		}
+	}
+
+	// Sort sections by position (top to bottom, left to right)
+	sort.Slice(sections, func(i, j int) bool {
+		if sections[i].Bounds.Min.Y != sections[j].Bounds.Min.Y {
+			return sections[i].Bounds.Min.Y < sections[j].Bounds.Min.Y
+		}
+		return sections[i].Bounds.Min.X < sections[j].Bounds.Min.X
+	})
+
+	return sections, nil
+}
+
+// consolidateLines groups nearby lines to avoid over-segmentation
+func consolidateLines(lines map[int]bool, threshold int) map[int]bool {
+	consolidated := make(map[int]bool)
+	var positions []int
+	for pos := range lines {
+		positions = append(positions, pos)
+	}
+	sort.Ints(positions)
+
+	if len(positions) == 0 {
+		return consolidated
+	}
+
+	currentGroup := positions[0]
+	consolidated[currentGroup] = true
+
+	for i := 1; i < len(positions); i++ {
+		if positions[i]-currentGroup > threshold {
+			currentGroup = positions[i]
+			consolidated[currentGroup] = true
+		}
+	}
+
+	return consolidated
+}
+
+// detectSignificantColorChange checks for significant color variations within a region
+func detectSignificantColorChange(img image.Image, bounds image.Rectangle) bool {
+	const sampleSize = 10 // Sample every 10th pixel
+	const threshold = 30  // Color difference threshold
+
+	var previousColor color.Color
+	for y := bounds.Min.Y; y < bounds.Max.Y; y += sampleSize {
+		for x := bounds.Min.X; x < bounds.Max.X; x += sampleSize {
+			currentColor := img.At(x, y)
+			if previousColor != nil {
+				r1, g1, b1, _ := previousColor.RGBA()
+				r2, g2, b2, _ := currentColor.RGBA()
+
+				// Convert to 8-bit color values
+				r1, g1, b1 = r1>>8, g1>>8, b1>>8
+				r2, g2, b2 = r2>>8, g2>>8, b2>>8
+
+				// Calculate color difference
+				diff := math.Abs(float64(r1)-float64(r2)) +
+					math.Abs(float64(g1)-float64(g2)) +
+					math.Abs(float64(b1)-float64(b2))
+
+				if diff > threshold*3 { // Multiply by 3 because we're summing three channels
+					return true
+				}
+			}
+			previousColor = currentColor
+		}
+	}
+	return false
 }
